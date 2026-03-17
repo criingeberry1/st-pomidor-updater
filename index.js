@@ -46,33 +46,31 @@
             return null;
         }
 
-        // Очищаем URL: убираем /raw и слеши на конце
+        // Очищаем URL от /raw и слешей
         let targetUrl = settings.rentry_url.trim().replace(/\/raw\/?$/i, '').replace(/\/$/, '');
+        const nocache = targetUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
+        const finalUrl = targetUrl + nocache;
         
-        log(`Запуск Omega-маршрутизации (PDF Exploit) для: ${targetUrl}`, 'info');
+        log(`Запуск Omega-маршрутизации (Raw HTML Override) для: ${finalUrl}`, 'info');
 
-        // Массив атакующих векторов
         const proxies = [
-            // 1. PDF EXPLOIT: Экспорт в PDF обходит NSFW-заглушку. ИИ парсит текст из PDF-файла.
+            // OMEGA LEVEL: Истинный заголовок, заставляющий Jina отдать грязный DOM без удаления блоков
             { 
-                name: 'Jina AI (PDF Exploit)', 
-                url: `https://r.jina.ai/${targetUrl}/pdf?v=${Date.now()}`, 
+                name: 'Jina AI (Raw HTML Override)', 
+                url: `https://r.jina.ai/${finalUrl}`, 
                 type: 'text',
-                headers: { "Cache-Control": "no-cache", "x-no-cache": "true" }
+                headers: { 
+                    "x-respond-with": "html", 
+                    "Cache-Control": "no-cache", 
+                    "x-no-cache": "true" 
+                }
             },
-            // 2. Стандартный режим (если PDF генератор Rentry упадет)
+            // Резервный маршрут на случай, если Jina лежит (часто блокируется адблоками на мобилках)
             { 
-                name: 'Jina AI (Standard)', 
-                url: `https://r.jina.ai/${targetUrl}?v=${Date.now()}`, 
+                name: 'AllOrigins', 
+                url: `https://api.allorigins.win/raw?url=${encodeURIComponent(finalUrl)}`, 
                 type: 'text',
-                headers: { "Cache-Control": "no-cache", "x-no-cache": "true" }
-            },
-            // 3. Прямой локальный запрос (если браузер разрешит CORS)
-            { 
-                name: 'Direct Local Fetch', 
-                url: `${targetUrl}?v=${Date.now()}`, 
-                type: 'text',
-                headers: { "Cache-Control": "no-cache" }
+                headers: { "Cache-Control": "no-store" }
             }
         ];
 
@@ -92,14 +90,10 @@
                 const text = await response.text();
                 if (!text) continue;
 
-                // Проверка на Cloudflare WAF и Rentry Warning
+                // Проверка на Cloudflare WAF
                 if (text.includes('<title>What</title>') || text.includes('Just a moment...')) {
                     log(`[${proxy.name}] Обнаружена WAF-защита. Идем дальше.`, 'error');
                     continue; 
-                }
-                if (text.includes('Access Code Required')) {
-                    log(`[${proxy.name}] Сервер требует Access Code. Идем дальше.`, 'error');
-                    continue;
                 }
 
                 const snippet = text.substring(0, 150).replace(/\n/g, ' ');
