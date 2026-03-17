@@ -133,8 +133,7 @@
             let presetFound = false;
             let availablePresets = [];
 
-            // --- OMNI-SCANNER ---
-            // Сканируем все возможные пути хранения прокси-пресетов в разных версиях ST
+            // --- ADVANCED OMNI-SCANNER (Polymorphic Arrays & Dictionaries) ---
             const searchPaths = [
                 // @ts-ignore
                 window.proxy_presets,
@@ -143,23 +142,42 @@
                 // @ts-ignore
                 window.oai_settings?.proxy_presets,
                 // @ts-ignore
-                context.settings?.proxy_presets
+                context.settings?.proxy_presets,
+                // @ts-ignore
+                window.oai_settings?.reverse_proxy_presets
             ];
 
-            for (const arr of searchPaths) {
-                if (Array.isArray(arr)) {
-                    // Собираем все названия для дебага
-                    arr.forEach(p => { if (p && p.name) availablePresets.push(`"${p.name}"`); });
-                    
-                    const proxyPreset = arr.find(p => p.name === presetName || p.name.trim() === presetName);
+            for (const data of searchPaths) {
+                if (!data) continue;
+
+                // Если это массив (Array)
+                if (Array.isArray(data)) {
+                    data.forEach(p => { if (p && p.name) availablePresets.push(`"${p.name}"`); });
+                    const proxyPreset = data.find(p => p.name === presetName || p.name.trim() === presetName);
                     if (proxyPreset) {
-                        proxyPreset.url = proxyUrl;
-                        if (proxyPreset.reverse_proxy !== undefined) {
-                            proxyPreset.reverse_proxy = proxyUrl;
-                        }
+                        if (proxyPreset.url !== undefined) proxyPreset.url = proxyUrl;
+                        if (proxyPreset.reverse_proxy !== undefined) proxyPreset.reverse_proxy = proxyUrl;
                         presetFound = true;
                         break;
                     }
+                } 
+                // Если это Словарь / Объект (Dictionary)
+                else if (typeof data === 'object') {
+                    for (const [key, val] of Object.entries(data)) {
+                        availablePresets.push(`"${key}"`);
+                        if (key.trim() === presetName) {
+                            if (typeof val === 'string') {
+                                data[key] = proxyUrl;
+                            } else if (typeof val === 'object' && val !== null) {
+                                // @ts-ignore
+                                if (val.url !== undefined) val.url = proxyUrl;
+                                // @ts-ignore
+                                if (val.reverse_proxy !== undefined) val.reverse_proxy = proxyUrl;
+                            }
+                            presetFound = true;
+                        }
+                    }
+                    if (presetFound) break;
                 }
             }
 
@@ -168,7 +186,6 @@
                 log(`Пресет прокси "${presetName}" успешно перезаписан`, 'info');
                 toastr.success(`Пресет прокси "${presetName}" обновлен!`);
             } else {
-                // Если не нашли, выводим в логи ВСЕ пресеты, которые нашел сканер
                 const uniquePresets = [...new Set(availablePresets)].join(', ');
                 log(`Пресет "${presetName}" не найден!`, 'error');
                 log(`Доступные пресеты в памяти ST: [${uniquePresets || 'ПУСТО'}]`, 'debug');
