@@ -1,9 +1,8 @@
+// @ts-check
 (function () {
     // --- constants ---
     const MODULE_NAME = 'rentry_proxy_updater';
     const CLOUDFLARE_PATTERN = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
-
-    const { eventSource, event_types, getPresetManager, getRequestHeaders } = SillyTavern.getContext();
 
     const DEFAULT_SETTINGS = Object.freeze({
         enabled: true,
@@ -81,6 +80,7 @@
     async function applyProxy(proxyUrl) {
         if (!proxyUrl) return;
         const settings = getSettings();
+        const { getPresetManager, getRequestHeaders } = SillyTavern.getContext();
 
         $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
         log('DOM элемент #openai_reverse_proxy обновлен', 'info');
@@ -155,6 +155,7 @@
     // --- ui ---
     function initUI() {
         const settings = getSettings();
+        const { getPresetManager } = SillyTavern.getContext();
 
         const pm = getPresetManager();
         const presetList = pm.getPresetList ? pm.getPresetList() : [];
@@ -226,13 +227,18 @@
     }
 
     // --- lifecycle ---
-    eventSource.on(event_types.APP_READY, async () => {
-        initUI();
-        const settings = getSettings();
-        log('Расширение инициализировано.', 'debug');
+    $(document).ready(function() {
+        try {
+            initUI();
+            const settings = getSettings();
+            log('Расширение инициализировано.', 'debug');
 
-        if (settings.enabled) {
-            setTimeout(checkAndUpdate, 2000);
+            if (settings.enabled) {
+                setTimeout(checkAndUpdate, 2000);
+            }
+        } catch (error) {
+            console.error("[RentryUpdater] Критическая ошибка при загрузке UI:", error);
+            toastr.error("Rentry Updater не смог загрузиться. Ошибка в консоли.");
         }
     });
 
