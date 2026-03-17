@@ -7,7 +7,7 @@
 
     const DEFAULT_SETTINGS = Object.freeze({
         enabled: true,
-        rentry_url: 'https://rentry.org/Pomidoranon_proxy', // По умолчанию теперь без raw
+        rentry_url: 'https://rentry.org/Pomidoranon_proxy', // Без raw
         append_path: '/proxy/google-ai',
         target_preset: '',
         verbose_logging: false
@@ -46,41 +46,40 @@
             return null;
         }
 
-        // --- ОБХОД НОВЫХ ПРАВИЛ RENTRY ---
-        // Жестко вырезаем /raw, так как Rentry теперь требует для него пароль
+        // Вырезаем /raw, так как Rentry требует пароль
         let targetUrl = settings.rentry_url.trim().replace(/\/raw\/?$/i, '');
-        
-        // Добавляем кэш-бастер, чтобы заставить ИИ читать свежую страницу
         const nocache = targetUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
         const finalUrl = targetUrl + nocache;
         
-        log(`Запуск маршрутизации (RAW ENDPOINT DEAD) для: ${finalUrl}`, 'info');
+        log(`Запуск маршрутизации для: ${finalUrl}`, 'info');
 
         const proxies = [
-            // Jina AI с жесткими анти-кэш заголовками
+            // 1. Jina AI в режиме HTML (ФОРСИРУЕМ ИСХОДНЫЙ КОД, ЧТОБЫ ИИ НЕ ВЫРЕЗАЛ СИНИЕ ПЛАШКИ)
             { 
-                name: 'Jina AI (Anti-Cache)', 
+                name: 'Jina AI (HTML Mode)', 
                 url: `https://r.jina.ai/${finalUrl}`, 
                 type: 'text',
-                headers: { "Cache-Control": "no-cache", "x-no-cache": "true" }
+                headers: { 
+                    "Accept": "text/html", // Это заставит Jina отдать грязный HTML вместо Markdown
+                    "Cache-Control": "no-cache", 
+                    "x-no-cache": "true" 
+                }
             },
-            // AllOrigins через JSON (иногда лучше обходит Cloudflare, чем голый текст)
+            // 2. Jina AI в стандартном режиме (Резерв)
+            { 
+                name: 'Jina AI (Markdown)', 
+                url: `https://r.jina.ai/${finalUrl}`, 
+                type: 'text',
+                headers: { 
+                    "Cache-Control": "no-cache", 
+                    "x-no-cache": "true" 
+                }
+            },
+            // 3. AllOrigins (Резерв)
             { 
                 name: 'AllOrigins JSON', 
                 url: `https://api.allorigins.win/get?url=${encodeURIComponent(finalUrl)}`, 
                 type: 'json_allorigins',
-                headers: { "Cache-Control": "no-store" }
-            },
-            { 
-                name: 'CodeTabs API', 
-                url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(finalUrl)}`, 
-                type: 'text',
-                headers: { "Cache-Control": "no-store" }
-            },
-            { 
-                name: 'Microlink API', 
-                url: `https://api.microlink.io/?url=${encodeURIComponent(finalUrl)}`, 
-                type: 'json_microlink',
                 headers: { "Cache-Control": "no-store" }
             }
         ];
@@ -99,10 +98,7 @@
                 }
 
                 let text = '';
-                if (proxy.type === 'json_microlink') {
-                    const data = await response.json();
-                    text = JSON.stringify(data);
-                } else if (proxy.type === 'json_allorigins') {
+                if (proxy.type === 'json_allorigins') {
                     const data = await response.json();
                     text = data.contents;
                 } else {
@@ -111,19 +107,17 @@
 
                 if (!text) continue;
 
-                // Проверка на Cloudflare WAF
                 if (text.includes('<title>What</title>') || text.includes('Just a moment...')) {
-                    log(`[${proxy.name}] Обнаружена WAF-защита (Cloudflare). Идем дальше.`, 'error');
+                    log(`[${proxy.name}] Обнаружена WAF-защита. Идем дальше.`, 'error');
                     continue; 
                 }
                 
-                // Проверка на новую заглушку Rentry
                 if (text.includes('Access Code Required')) {
-                    log(`[${proxy.name}] Сервер всё еще требует Access Code! Идем дальше.`, 'error');
+                    log(`[${proxy.name}] Сервер требует Access Code. Идем дальше.`, 'error');
                     continue;
                 }
 
-                const snippet = text.substring(0, 100).replace(/\n/g, ' ');
+                const snippet = text.substring(0, 150).replace(/\n/g, ' ');
                 log(`[${proxy.name}] УСПЕХ! Ответ получен: "${snippet}..."`, 'info');
 
                 const match = text.match(CLOUDFLARE_PATTERN);
