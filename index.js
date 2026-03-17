@@ -46,21 +46,26 @@
             return null;
         }
 
-        // Генерируем случайный параметр, чтобы убить кэширование на стороне прокси-серверов
-        const nocache = `?v=${Date.now()}`;
-        const baseRentryUrl = settings.rentry_url.replace(/\/raw\/?$/i, '');
+        // --- БЛОК ОБХОДА NSFW/WARNING ПЛАШЕК ---
+        let targetUrl = settings.rentry_url.trim();
         
-        log(`Запуск Omega-маршрутизации (Bypass Cache) для: ${baseRentryUrl}`, 'info');
+        // Принудительно заставляем систему читать только RAW-версию, чтобы обойти кнопку "Continue"
+        if (!targetUrl.endsWith('/raw') && !targetUrl.includes('/raw?')) {
+            targetUrl = targetUrl.replace(/\/$/, '') + '/raw';
+            log(`Форсирован RAW-режим: ${targetUrl}`, 'debug');
+        }
+
+        // Убиваем кэш
+        const nocache = targetUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
+        const finalUrl = targetUrl + nocache;
+        
+        log(`Запуск Omega-маршрутизации (NSFW Bypass) для: ${finalUrl}`, 'info');
 
         const proxies = [
-            // Jina AI читает Markdown
-            { name: 'Jina AI (Headless)', url: `https://r.jina.ai/${baseRentryUrl}${nocache}`, type: 'text' },
-            // Microlink парсит метаданные
-            { name: 'Microlink API', url: `https://api.microlink.io/?url=${encodeURIComponent(baseRentryUrl + nocache)}`, type: 'json_microlink' },
-            // AllOrigins тянет Raw-текст
-            { name: 'AllOrigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(settings.rentry_url + nocache)}`, type: 'text' },
-            // CodeTabs API (еще один резерв)
-            { name: 'CodeTabs API', url: `https://api.codetabs.com/v1/proxy?quest=${settings.rentry_url}${nocache}`, type: 'text' }
+            { name: 'Jina AI (Raw Bypass)', url: `https://r.jina.ai/${finalUrl}`, type: 'text' },
+            { name: 'AllOrigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(finalUrl)}`, type: 'text' },
+            { name: 'CodeTabs API', url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(finalUrl)}`, type: 'text' },
+            { name: 'Microlink API', url: `https://api.microlink.io/?url=${encodeURIComponent(finalUrl)}`, type: 'json_microlink' }
         ];
 
         for (const proxy of proxies) {
@@ -103,10 +108,9 @@
                     return proxyUrl;
                 } else {
                     log(`[${proxy.name}] Паттерн trycloudflare не найден! Включаю DEEP CORE DUMP.`, 'error');
-                    // --- DEEP CORE DUMP ---
-                    // Сохраняем весь скачанный текст сайта в логи, чтобы увидеть проблему глазами
                     internalLogs.push(`\n=== DEEP CORE DUMP [${proxy.name}] ===\n${text}\n=== END DUMP ===\n`);
-                    return null; 
+                    // Не выходим из цикла! Пробуем следующий прокси, вдруг этот отдал мусор
+                    continue; 
                 }
             } catch (e) {
                 log(`[${proxy.name}] Сетевой сбой: ${e.message}`, 'debug');
@@ -122,13 +126,13 @@
         const settings = getSettings();
         const context = SillyTavern.getContext();
 
-        $('#openai_reverse_proxy').val(proxyUrl).trigger('input'); // [cite: 3]
+        $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
         log('DOM элемент #openai_reverse_proxy обновлен', 'info');
 
         if (settings.target_preset && settings.target_preset.trim() !== '') {
             const pm = context.getPresetManager();
             const presetName = settings.target_preset.trim();
-            const preset = pm.getCompletionPresetByName(presetName); // [cite: 108]
+            const preset = pm.getCompletionPresetByName(presetName);
 
             if (preset) {
                 if (preset.reverse_proxy === proxyUrl) {
@@ -136,12 +140,12 @@
                     return;
                 }
 
-                preset.reverse_proxy = proxyUrl; // [cite: 111]
+                preset.reverse_proxy = proxyUrl;
                 try {
-                    const response = await fetch('/api/presets/save', { // [cite: 113]
-                        method: 'POST', // [cite: 114]
-                        headers: context.getRequestHeaders(), // [cite: 115]
-                        body: JSON.stringify({ name: presetName, ...preset }) // [cite: 116]
+                    const response = await fetch('/api/presets/save', {
+                        method: 'POST',
+                        headers: context.getRequestHeaders(),
+                        body: JSON.stringify({ name: presetName, ...preset })
                     });
 
                     if (response.ok) {
@@ -239,10 +243,10 @@
 
         $('#extensions_settings').append(html);
 
-        $('#rp_rentry_url').on('input', function() { settings.rentry_url = $(this).val(); context.saveSettingsDebounced(); }); // [cite: 47]
+        $('#rp_rentry_url').on('input', function() { settings.rentry_url = $(this).val(); context.saveSettingsDebounced(); });
         $('#rp_append_path').on('input', function() { settings.append_path = $(this).val(); context.saveSettingsDebounced(); });
-        $('#rp_target_preset').on('input', function() { settings.target_preset = $(this).val(); context.saveSettingsDebounced(); }); // [cite: 232]
-        $('#rp_auto_check').on('change', function() { settings.enabled = $(this).is(':checked'); context.saveSettingsDebounced(); }); // [cite: 236]
+        $('#rp_target_preset').on('input', function() { settings.target_preset = $(this).val(); context.saveSettingsDebounced(); });
+        $('#rp_auto_check').on('change', function() { settings.enabled = $(this).is(':checked'); context.saveSettingsDebounced(); });
 
         $('#rp_verbose_logging').on('change', function() {
             settings.verbose_logging = $(this).is(':checked');
@@ -256,9 +260,9 @@
     }
 
     $(document).ready(function() {
-        const context = SillyTavern.getContext(); // [cite: 23]
+        const context = SillyTavern.getContext();
         
-        context.eventSource.on(context.event_types.APP_READY, function () { // [cite: 27]
+        context.eventSource.on(context.event_types.APP_READY, function () {
             try {
                 initUI();
                 const settings = getSettings();
