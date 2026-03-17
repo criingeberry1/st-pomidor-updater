@@ -3,7 +3,8 @@
     const MODULE_NAME = 'rentry_proxy_updater';
     
     // --- OMEGA REGEX PATTERN ---
-    const PROXY_PATTERN = /https?:\/\/[a-zA-Z0-9-]+\.(trycloudflare\.com|loca\.lt|ngrok-free\.app|ngrok\.io|ngrok\.app|pinggy\.link|hf\.space|glitch\.me|onrender\.com)[^\s]*/i;
+    // Добавлено [^\s"'<>\\] чтобы отсекать кавычки при чтении JSON-ответов от парсеров
+    const PROXY_PATTERN = /https?:\/\/[a-zA-Z0-9-]+\.(trycloudflare\.com|loca\.lt|ngrok-free\.app|ngrok\.io|ngrok\.app|pinggy\.link|hf\.space|glitch\.me|onrender\.com)[^\s"'<>\\]*/i;
 
     const DEFAULT_SETTINGS = Object.freeze({
         enabled: true,
@@ -39,7 +40,7 @@
         }
     }
 
-    // --- MULTI-PROXY CIRCUIT BREAKER ---
+    // --- AI-ERA MULTI-PROXY CIRCUIT BREAKER ---
     async function fetchProxyFromRentry() {
         const settings = getSettings();
         if (!settings.rentry_url) {
@@ -47,39 +48,47 @@
             return null;
         }
 
-        log(`Запуск Multi-Proxy маршрутизации для: ${settings.rentry_url}`, 'info');
+        // Убираем /raw из URL для ИИ-парсеров, они рендерят DOM как люди
+        const baseRentryUrl = settings.rentry_url.replace(/\/raw\/?$/i, '');
+        log(`Запуск Omega-маршрутизации для: ${baseRentryUrl}`, 'info');
 
-        // Массив прокси-серверов для обхода блокировок IP от Rentry и CORS браузера
+        // Эшелонированная защита (Vanguard)
         const proxies = [
+            // 1. Jina AI Reader - специализированный обход Cloudflare для LLM (возвращает Markdown)
+            { name: 'Jina AI (Headless)', url: `https://r.jina.ai/${baseRentryUrl}`, type: 'text' },
+            // 2. Microlink - мощный экстрактор метаданных (пробивает капчи)
+            { name: 'Microlink API', url: `https://api.microlink.io/?url=${encodeURIComponent(baseRentryUrl)}`, type: 'json_microlink' },
+            // 3. Прямой запрос (если Rentry ослабит WAF)
             { name: 'Direct (Local)', url: settings.rentry_url, type: 'text' },
-            { name: 'CorsProxy.io', url: `https://corsproxy.io/?${settings.rentry_url}`, type: 'text' },
-            { name: 'CodeTabs API', url: `https://api.codetabs.com/v1/proxy?quest=${settings.rentry_url}`, type: 'text' },
-            { name: 'AllOrigins', url: `https://api.allorigins.win/get?url=${encodeURIComponent(settings.rentry_url)}`, type: 'json' }
+            // 4. AllOrigins Raw - резервный канал
+            { name: 'AllOrigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(settings.rentry_url)}`, type: 'text' }
         ];
 
         for (const proxy of proxies) {
             log(`[${proxy.name}] Инициализация соединения...`, 'debug');
             try {
+                // Отключаем кэш для получения свежей ссылки
                 const response = await fetch(proxy.url, { cache: "no-store" });
                 if (!response.ok) {
                     log(`[${proxy.name}] Отказ сервера (HTTP ${response.status})`, 'debug');
-                    continue; // Пробуем следующий прокси
+                    continue; 
                 }
 
                 let text = '';
-                if (proxy.type === 'json') {
+                if (proxy.type === 'json_microlink') {
+                    // Превращаем весь JSON в сырую строку. Регулярка сама найдет внутри нужный URL.
                     const data = await response.json();
-                    text = data.contents;
+                    text = JSON.stringify(data);
                 } else {
                     text = await response.text();
                 }
 
                 if (!text) continue;
 
-                // Защита от Rentry заглушек
-                if (text.includes('<title>What</title>')) {
-                    log(`[${proxy.name}] Rentry заблокировал IP этого датацентра. Идем дальше.`, 'error');
-                    continue; // Пробуем следующий прокси
+                // Защита от заглушек Rentry / Cloudflare
+                if (text.includes('<title>What</title>') || text.includes('Just a moment...')) {
+                    log(`[${proxy.name}] Обнаружена WAF-защита (Cloudflare). Идем дальше.`, 'error');
+                    continue; 
                 }
 
                 const snippet = text.substring(0, 100).replace(/\n/g, ' ');
@@ -97,22 +106,21 @@
                     }
                     return proxyUrl;
                 } else {
-                    const anyUrlMatch = text.match(/https?:\/\/[a-zA-Z0-9.-]+[^\s]*/i);
-                    if (anyUrlMatch && !anyUrlMatch[0].includes('rentry.')) {
+                    const anyUrlMatch = text.match(/https?:\/\/[a-zA-Z0-9.-]+[^\s"'<>\\]*/i);
+                    if (anyUrlMatch && !anyUrlMatch[0].includes('rentry') && !anyUrlMatch[0].includes('jina.ai') && !anyUrlMatch[0].includes('microlink.io')) {
                         log(`[${proxy.name}] Внимание: найден нестандартный URL (${anyUrlMatch[0]}).`, 'error');
                     } else {
                         log(`[${proxy.name}] Паттерн прокси не найден в тексте!`, 'error');
                     }
-                    // Раз мы пробили защиту и получили реальный текст, но там нет ссылки, 
-                    // значит Помидорыч её еще не выложил. Дальше прокси перебирать нет смысла.
+                    // Если пробили защиту, но ссылки нет — Помидорыч её еще не обновил. Перебор бессмысленен.
                     return null; 
                 }
             } catch (e) {
-                log(`[${proxy.name}] Сетевая ошибка (CORS/Timeout): ${e.message}`, 'debug');
+                log(`[${proxy.name}] Сетевой сбой: ${e.message}`, 'debug');
             }
         }
         
-        log('Все узлы маршрутизации заблокированы или недоступны.', 'error');
+        log('Критический сбой: Все ИИ-парсеры и резервные узлы заблокированы.', 'error');
         return null;
     }
 
@@ -121,6 +129,7 @@
         const settings = getSettings();
         const context = SillyTavern.getContext();
 
+        // Обновление DOM вызывает триггер сохранения настроек
         $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
         log('DOM элемент #openai_reverse_proxy обновлен', 'info');
 
