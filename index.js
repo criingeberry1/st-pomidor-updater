@@ -44,9 +44,10 @@
             log('Rentry URL не задан', 'error');
             return null;
         }
-        log(`Инициализация HTTP GET к ${settings.rentry_url}`, 'debug');
+        const bypassUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(settings.rentry_url)}`;
+        log(`HTTP GET (через CORS Proxy Bypass): ${settings.rentry_url}`, 'debug');
         try {
-            const response = await fetch(settings.rentry_url);
+            const response = await fetch(bypassUrl, { cache: "no-store" });
             if (!response.ok) throw new Error(`HTTP Status: ${response.status}`);
             const text = await response.text();
 
@@ -166,7 +167,7 @@
                         <label>Что присобачить к URL (Path):</label>
                         <input id="rp_append_path" type="text" class="text_pole" value="${settings.append_path}" placeholder="/proxy/google-ai" />
                         <label>Целевой пресет (введи название или оставь пустым):</label>
-                        <input id="rp_target_preset" type="text" class="text_pole" value="${settings.target_preset}" placeholder="Например: My Proxy Preset" title="Оставь пустым, если нужно обновлять только Live URL" />
+                        <input id="rp_target_preset" type="text" class="text_pole" value="${settings.target_preset}" placeholder="Например: My Proxy Preset" />
                         <label class="checkbox_label">
                             <input id="rp_auto_check" type="checkbox" ${settings.enabled ? 'checked' : ''}>
                             Авто-проверка при загрузке страницы
