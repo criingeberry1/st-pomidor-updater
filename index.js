@@ -2,8 +2,8 @@
 (function () {
     const MODULE_NAME = 'rentry_proxy_updater';
     
-    // --- ВОЗВРАЩАЕМ КЛАССИЧЕСКИЙ ПАТТЕРН CLOUDFLARE ---
-    const CLOUDFLARE_PATTERN = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
+    // Бронебойный паттерн с поддержкой http/https и любых символов поддомена
+    const CLOUDFLARE_PATTERN = /https?:\/\/[a-zA-Z0-9-._]+\.trycloudflare\.com/i;
 
     const DEFAULT_SETTINGS = Object.freeze({
         enabled: true,
@@ -39,7 +39,6 @@
         }
     }
 
-    // --- AI-ERA MULTI-PROXY CIRCUIT BREAKER ---
     async function fetchProxyFromRentry() {
         const settings = getSettings();
         if (!settings.rentry_url) {
@@ -47,20 +46,27 @@
             return null;
         }
 
+        // Генерируем случайный параметр, чтобы убить кэширование на стороне прокси-серверов
+        const nocache = `?v=${Date.now()}`;
         const baseRentryUrl = settings.rentry_url.replace(/\/raw\/?$/i, '');
-        log(`Запуск Omega-маршрутизации для: ${baseRentryUrl}`, 'info');
+        
+        log(`Запуск Omega-маршрутизации (Bypass Cache) для: ${baseRentryUrl}`, 'info');
 
         const proxies = [
-            { name: 'Jina AI (Headless)', url: `https://r.jina.ai/${baseRentryUrl}`, type: 'text' },
-            { name: 'Microlink API', url: `https://api.microlink.io/?url=${encodeURIComponent(baseRentryUrl)}`, type: 'json_microlink' },
-            { name: 'Direct (Local)', url: settings.rentry_url, type: 'text' },
-            { name: 'AllOrigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(settings.rentry_url)}`, type: 'text' }
+            // Jina AI читает Markdown
+            { name: 'Jina AI (Headless)', url: `https://r.jina.ai/${baseRentryUrl}${nocache}`, type: 'text' },
+            // Microlink парсит метаданные
+            { name: 'Microlink API', url: `https://api.microlink.io/?url=${encodeURIComponent(baseRentryUrl + nocache)}`, type: 'json_microlink' },
+            // AllOrigins тянет Raw-текст
+            { name: 'AllOrigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(settings.rentry_url + nocache)}`, type: 'text' },
+            // CodeTabs API (еще один резерв)
+            { name: 'CodeTabs API', url: `https://api.codetabs.com/v1/proxy?quest=${settings.rentry_url}${nocache}`, type: 'text' }
         ];
 
         for (const proxy of proxies) {
             log(`[${proxy.name}] Инициализация соединения...`, 'debug');
             try {
-                const response = await fetch(proxy.url, { cache: "no-store" });
+                const response = await fetch(proxy.url, { cache: "no-store", headers: { "Pragma": "no-cache" } });
                 if (!response.ok) {
                     log(`[${proxy.name}] Отказ сервера (HTTP ${response.status})`, 'debug');
                     continue; 
@@ -84,7 +90,6 @@
                 const snippet = text.substring(0, 100).replace(/\n/g, ' ');
                 log(`[${proxy.name}] УСПЕХ! Ответ получен: "${snippet}..."`, 'info');
 
-                // ИЩЕМ ТОЛЬКО CLOUDFLARE
                 const match = text.match(CLOUDFLARE_PATTERN);
 
                 if (match) {
@@ -97,7 +102,10 @@
                     }
                     return proxyUrl;
                 } else {
-                    log(`[${proxy.name}] Паттерн trycloudflare не найден в тексте!`, 'error');
+                    log(`[${proxy.name}] Паттерн trycloudflare не найден! Включаю DEEP CORE DUMP.`, 'error');
+                    // --- DEEP CORE DUMP ---
+                    // Сохраняем весь скачанный текст сайта в логи, чтобы увидеть проблему глазами
+                    internalLogs.push(`\n=== DEEP CORE DUMP [${proxy.name}] ===\n${text}\n=== END DUMP ===\n`);
                     return null; 
                 }
             } catch (e) {
@@ -105,7 +113,7 @@
             }
         }
         
-        log('Критический сбой: Все ИИ-парсеры и резервные узлы заблокированы.', 'error');
+        log('Критический сбой: Все маршруты заблокированы.', 'error');
         return null;
     }
 
@@ -114,13 +122,13 @@
         const settings = getSettings();
         const context = SillyTavern.getContext();
 
-        $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
+        $('#openai_reverse_proxy').val(proxyUrl).trigger('input'); // [cite: 3]
         log('DOM элемент #openai_reverse_proxy обновлен', 'info');
 
         if (settings.target_preset && settings.target_preset.trim() !== '') {
             const pm = context.getPresetManager();
             const presetName = settings.target_preset.trim();
-            const preset = pm.getCompletionPresetByName(presetName);
+            const preset = pm.getCompletionPresetByName(presetName); // [cite: 108]
 
             if (preset) {
                 if (preset.reverse_proxy === proxyUrl) {
@@ -128,12 +136,12 @@
                     return;
                 }
 
-                preset.reverse_proxy = proxyUrl;
+                preset.reverse_proxy = proxyUrl; // [cite: 111]
                 try {
-                    const response = await fetch('/api/presets/save', {
-                        method: 'POST',
-                        headers: context.getRequestHeaders(),
-                        body: JSON.stringify({ name: presetName, ...preset })
+                    const response = await fetch('/api/presets/save', { // [cite: 113]
+                        method: 'POST', // [cite: 114]
+                        headers: context.getRequestHeaders(), // [cite: 115]
+                        body: JSON.stringify({ name: presetName, ...preset }) // [cite: 116]
                     });
 
                     if (response.ok) {
@@ -231,10 +239,10 @@
 
         $('#extensions_settings').append(html);
 
-        $('#rp_rentry_url').on('input', function() { settings.rentry_url = $(this).val(); context.saveSettingsDebounced(); });
+        $('#rp_rentry_url').on('input', function() { settings.rentry_url = $(this).val(); context.saveSettingsDebounced(); }); // [cite: 47]
         $('#rp_append_path').on('input', function() { settings.append_path = $(this).val(); context.saveSettingsDebounced(); });
-        $('#rp_target_preset').on('input', function() { settings.target_preset = $(this).val(); context.saveSettingsDebounced(); });
-        $('#rp_auto_check').on('change', function() { settings.enabled = $(this).is(':checked'); context.saveSettingsDebounced(); });
+        $('#rp_target_preset').on('input', function() { settings.target_preset = $(this).val(); context.saveSettingsDebounced(); }); // [cite: 232]
+        $('#rp_auto_check').on('change', function() { settings.enabled = $(this).is(':checked'); context.saveSettingsDebounced(); }); // [cite: 236]
 
         $('#rp_verbose_logging').on('change', function() {
             settings.verbose_logging = $(this).is(':checked');
@@ -248,9 +256,9 @@
     }
 
     $(document).ready(function() {
-        const context = SillyTavern.getContext();
+        const context = SillyTavern.getContext(); // [cite: 23]
         
-        context.eventSource.on(context.event_types.APP_READY, function () {
+        context.eventSource.on(context.event_types.APP_READY, function () { // [cite: 27]
             try {
                 initUI();
                 const settings = getSettings();
