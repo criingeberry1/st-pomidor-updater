@@ -16,11 +16,12 @@
 
     // --- settings ---
     function getSettings() {
-        const { extensionSettings } = SillyTavern.getContext();
-        if (!extensionSettings[MODULE_NAME]) {
-            extensionSettings[MODULE_NAME] = structuredClone(DEFAULT_SETTINGS);
+        const context = SillyTavern.getContext();
+        if (!context.extensionSettings) context.extensionSettings = {};
+        if (!context.extensionSettings[MODULE_NAME]) {
+            context.extensionSettings[MODULE_NAME] = structuredClone(DEFAULT_SETTINGS);
         }
-        return extensionSettings[MODULE_NAME];
+        return context.extensionSettings[MODULE_NAME];
     }
 
     // --- logging ---
@@ -80,13 +81,13 @@
     async function applyProxy(proxyUrl) {
         if (!proxyUrl) return;
         const settings = getSettings();
-        const { getPresetManager, getRequestHeaders } = SillyTavern.getContext();
+        const context = SillyTavern.getContext();
 
         $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
         log('DOM элемент #openai_reverse_proxy обновлен', 'info');
 
         if (settings.target_preset) {
-            const pm = getPresetManager();
+            const pm = context.getPresetManager();
             const preset = pm.getCompletionPresetByName(settings.target_preset);
 
             if (preset) {
@@ -99,7 +100,7 @@
                 try {
                     const response = await fetch('/api/presets/save', {
                         method: 'POST',
-                        headers: getRequestHeaders(),
+                        headers: context.getRequestHeaders(),
                         body: JSON.stringify({ name: settings.target_preset, ...preset })
                     });
 
@@ -155,9 +156,9 @@
     // --- ui ---
     function initUI() {
         const settings = getSettings();
-        const { getPresetManager } = SillyTavern.getContext();
+        const context = SillyTavern.getContext();
 
-        const pm = getPresetManager();
+        const pm = context.getPresetManager();
         const presetList = pm.getPresetList ? pm.getPresetList() : [];
         let presetOptions = '<option value="">-- Не обновлять пресет (только Live) --</option>';
         presetList.forEach(p => {
@@ -210,14 +211,14 @@
 
         $('#extensions_settings').append(html);
 
-        $('#rp_rentry_url').on('input', function() { settings.rentry_url = $(this).val(); SillyTavern.getContext().saveSettingsDebounced(); });
-        $('#rp_append_path').on('input', function() { settings.append_path = $(this).val(); SillyTavern.getContext().saveSettingsDebounced(); });
-        $('#rp_target_preset').on('change', function() { settings.target_preset = $(this).val(); SillyTavern.getContext().saveSettingsDebounced(); });
-        $('#rp_auto_check').on('change', function() { settings.enabled = $(this).is(':checked'); SillyTavern.getContext().saveSettingsDebounced(); });
+        $('#rp_rentry_url').on('input', function() { settings.rentry_url = $(this).val(); context.saveSettingsDebounced(); });
+        $('#rp_append_path').on('input', function() { settings.append_path = $(this).val(); context.saveSettingsDebounced(); });
+        $('#rp_target_preset').on('change', function() { settings.target_preset = $(this).val(); context.saveSettingsDebounced(); });
+        $('#rp_auto_check').on('change', function() { settings.enabled = $(this).is(':checked'); context.saveSettingsDebounced(); });
 
         $('#rp_verbose_logging').on('change', function() {
             settings.verbose_logging = $(this).is(':checked');
-            SillyTavern.getContext().saveSettingsDebounced();
+            context.saveSettingsDebounced();
             $('#rentry-logs-output').css('display', settings.verbose_logging ? 'block' : 'none');
         });
 
@@ -228,18 +229,22 @@
 
     // --- lifecycle ---
     $(document).ready(function() {
-        try {
-            initUI();
-            const settings = getSettings();
-            log('Расширение инициализировано.', 'debug');
+        const context = SillyTavern.getContext();
 
-            if (settings.enabled) {
-                setTimeout(checkAndUpdate, 2000);
+        context.eventSource.on(context.event_types.APP_READY, function () {
+            try {
+                initUI();
+                const settings = getSettings();
+                log('Расширение инициализировано.', 'debug');
+
+                if (settings.enabled) {
+                    setTimeout(checkAndUpdate, 2000);
+                }
+            } catch (error) {
+                console.error("[RentryUpdater] Критическая ошибка при загрузке UI:", error);
+                toastr.error(`Rentry Updater Crash: ${error.message}`, "Ошибка расширения", {timeOut: 10000});
             }
-        } catch (error) {
-            console.error("[RentryUpdater] Критическая ошибка при загрузке UI:", error);
-            toastr.error("Rentry Updater не смог загрузиться. Ошибка в консоли.");
-        }
+        });
     });
 
 })();
