@@ -1,15 +1,14 @@
 // @ts-check
 (function () {
     const MODULE_NAME = 'rentry_proxy_updater';
-    
-    // Бронебойный паттерн с поддержкой http/https и любых символов поддомена
+
     const CLOUDFLARE_PATTERN = /https?:\/\/[a-zA-Z0-9-._]+\.trycloudflare\.com/i;
 
     const DEFAULT_SETTINGS = Object.freeze({
         enabled: true,
         rentry_url: 'https://rentry.org/Pomidoranon_proxy',
         append_path: '/proxy/google-ai',
-        target_preset: '',
+        target_preset: '', 
         verbose_logging: false
     });
 
@@ -46,17 +45,15 @@
             return null;
         }
 
-        // Очищаем URL от /raw и слешей
         let targetUrl = settings.rentry_url.trim().replace(/\/raw\/?$/i, '').replace(/\/$/, '');
         const nocache = targetUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
         const finalUrl = targetUrl + nocache;
         
-        log(`Запуск Omega-маршрутизации (Raw HTML Override) для: ${finalUrl}`, 'info');
+        log(`Запуск маршрутизации для: ${finalUrl}`, 'info');
 
         const proxies = [
-            // OMEGA LEVEL: Истинный заголовок, заставляющий Jina отдать грязный DOM без удаления блоков
             { 
-                name: 'Jina AI (Raw HTML Override)', 
+                name: 'Jina AI', 
                 url: `https://r.jina.ai/${finalUrl}`, 
                 type: 'text',
                 headers: { 
@@ -65,7 +62,6 @@
                     "x-no-cache": "true" 
                 }
             },
-            // Резервный маршрут на случай, если Jina лежит (часто блокируется адблоками на мобилках)
             { 
                 name: 'AllOrigins', 
                 url: `https://api.allorigins.win/raw?url=${encodeURIComponent(finalUrl)}`, 
@@ -90,7 +86,6 @@
                 const text = await response.text();
                 if (!text) continue;
 
-                // Проверка на Cloudflare WAF
                 if (text.includes('<title>What</title>') || text.includes('Just a moment...')) {
                     log(`[${proxy.name}] Обнаружена WAF-защита. Идем дальше.`, 'error');
                     continue; 
@@ -130,41 +125,37 @@
         const context = SillyTavern.getContext();
 
         $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
-        log('DOM элемент #openai_reverse_proxy обновлен', 'info');
+        log('#openai_reverse_proxy успешно обновлен', 'info');
 
         if (settings.target_preset && settings.target_preset.trim() !== '') {
-            const pm = context.getPresetManager();
             const presetName = settings.target_preset.trim();
-            const preset = pm.getCompletionPresetByName(presetName);
+            let presetFound = false;
 
-            if (preset) {
-                if (preset.reverse_proxy === proxyUrl) {
-                    log('Прокси в пресете уже актуален.', 'debug');
-                    return;
-                }
+            // @ts-ignore
+            if (window.oai_settings && Array.isArray(window.oai_settings.proxy_presets)) {
+                // @ts-ignore
+                const proxyPreset = window.oai_settings.proxy_presets.find(p => p.name === presetName);
+                if (proxyPreset) {
+                    proxyPreset.url = proxyUrl;
 
-                preset.reverse_proxy = proxyUrl;
-                try {
-                    const response = await fetch('/api/presets/save', {
-                        method: 'POST',
-                        headers: context.getRequestHeaders(),
-                        body: JSON.stringify({ name: presetName, ...preset })
-                    });
-
-                    if (response.ok) {
-                        log(`Пресет "${presetName}" успешно сохранен на сервере`, 'info');
-                        toastr.success(`Пресет "${presetName}" обновлен!`);
-                    } else {
-                        throw new Error('Server rejected preset save');
+                    if (proxyPreset.reverse_proxy !== undefined) {
+                        proxyPreset.reverse_proxy = proxyUrl;
                     }
-                } catch (e) {
-                    log(`Ошибка сохранения пресета: ${e.message}`, 'error');
+                    
+                    context.saveSettingsDebounced();
+                    presetFound = true;
+                    log(`пресет "${presetName}" успешно перезаписан`, 'info');
                 }
+            }
+
+            if (presetFound) {
+                toastr.success(`Пресет прокси "${presetName}" обновлен!`);
             } else {
-                log(`Пресет "${presetName}" не найден! Проверь название.`, 'error');
+                log(`пресет"${presetName}" не найден. мне нужно ТОЧНОЕ название.`, 'error');
+                toastr.warning(`пресет "${presetName}" не найден.`);
             }
         } else {
-            toastr.success('Live Proxy URL обновлен (Пресет не указан)');
+            toastr.success('ссылон обновлен в текущих настройках!!');
         }
     }
 
@@ -205,37 +196,37 @@
             <div id="${MODULE_NAME}-settings" class="extension_settings">
                 <div class="inline-drawer">
                     <div class="inline-drawer-toggle inline-drawer-header">
-                        <b>Обновить Помидорыча</b>
+                        <b>обновить помидорыча</b>
                         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                     </div>
                     <div class="inline-drawer-content" style="display: flex; flex-direction: column; gap: 10px;">
 
-                        <label>URL парсинга Rentry:</label>
+                        <label>ссылон на рентри:</label>
                         <input id="rp_rentry_url" type="text" class="text_pole" value="${settings.rentry_url}" />
 
-                        <label>Что присобачить к URL (Path):</label>
+                        <label>что присобачить к ссылке?:</label>
                         <input id="rp_append_path" type="text" class="text_pole" value="${settings.append_path}" placeholder="/proxy/google-ai" />
 
-                        <label>Целевой пресет (введи название или оставь пустым):</label>
-                        <input id="rp_target_preset" type="text" class="text_pole" value="${settings.target_preset}" placeholder="Например: My Proxy Preset" />
+                        <label>пресет, который нужно обновить:</label>
+                        <input id="rp_target_preset" type="text" class="text_pole" value="${settings.target_preset}" placeholder="Например: помидор пидорас" />
 
                         <label class="checkbox_label">
                             <input id="rp_auto_check" type="checkbox" ${settings.enabled ? 'checked' : ''}>
-                            Авто-проверка при загрузке страницы
+                            авто-проверка при загрузке страницы
                         </label>
 
                         <hr style="border-color: rgba(255,255,255,0.1); width: 100%; margin: 5px 0;" />
-                        <b>Debug & Diagnostics</b>
+                        <b>дебаг</b>
 
                         <label class="checkbox_label">
                             <input id="rp_verbose_logging" type="checkbox" ${settings.verbose_logging ? 'checked' : ''}>
-                            Комментировать каждый шаг (Verbose Logging)
+                            глянуть логи
                         </label>
 
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <div id="rp_btn_force_check" class="menu_button"><i class="fa-solid fa-rotate"></i> Проверить сейчас</div>
-                            <div id="rp_btn_dl_logs" class="menu_button"><i class="fa-solid fa-download"></i> Скачать логи</div>
-                            <div id="rp_btn_copy_err" class="menu_button"><i class="fa-solid fa-copy"></i> Копировать ошибки</div>
+                            <div id="rp_btn_force_check" class="menu_button"><i class="fa-solid fa-rotate"></i> глянуть ссылон сейчас</div>
+                            <div id="rp_btn_dl_logs" class="menu_button"><i class="fa-solid fa-download"></i> скачать логи</div>
+                            <div id="rp_btn_copy_err" class="menu_button"><i class="fa-solid fa-copy"></i> Ккопировать ошибки</div>
                         </div>
 
                         <div id="rentry-logs-output" class="rentry-logger-container" style="${settings.verbose_logging ? 'display: block;' : 'display: none;'}"></div>
