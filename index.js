@@ -7,7 +7,7 @@
 
     const DEFAULT_SETTINGS = Object.freeze({
         enabled: true,
-        rentry_url: 'https://rentry.org/Pomidoranon_proxy/raw',
+        rentry_url: 'https://rentry.org/Pomidoranon_proxy', // По умолчанию теперь без raw
         append_path: '/proxy/google-ai',
         target_preset: '',
         verbose_logging: false
@@ -46,32 +46,53 @@
             return null;
         }
 
-        // --- БЛОК ОБХОДА NSFW/WARNING ПЛАШЕК ---
-        let targetUrl = settings.rentry_url.trim();
+        // --- ОБХОД НОВЫХ ПРАВИЛ RENTRY ---
+        // Жестко вырезаем /raw, так как Rentry теперь требует для него пароль
+        let targetUrl = settings.rentry_url.trim().replace(/\/raw\/?$/i, '');
         
-        // Принудительно заставляем систему читать только RAW-версию, чтобы обойти кнопку "Continue"
-        if (!targetUrl.endsWith('/raw') && !targetUrl.includes('/raw?')) {
-            targetUrl = targetUrl.replace(/\/$/, '') + '/raw';
-            log(`Форсирован RAW-режим: ${targetUrl}`, 'debug');
-        }
-
-        // Убиваем кэш
+        // Добавляем кэш-бастер, чтобы заставить ИИ читать свежую страницу
         const nocache = targetUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
         const finalUrl = targetUrl + nocache;
         
-        log(`Запуск Omega-маршрутизации (NSFW Bypass) для: ${finalUrl}`, 'info');
+        log(`Запуск маршрутизации (RAW ENDPOINT DEAD) для: ${finalUrl}`, 'info');
 
         const proxies = [
-            { name: 'Jina AI (Raw Bypass)', url: `https://r.jina.ai/${finalUrl}`, type: 'text' },
-            { name: 'AllOrigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(finalUrl)}`, type: 'text' },
-            { name: 'CodeTabs API', url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(finalUrl)}`, type: 'text' },
-            { name: 'Microlink API', url: `https://api.microlink.io/?url=${encodeURIComponent(finalUrl)}`, type: 'json_microlink' }
+            // Jina AI с жесткими анти-кэш заголовками
+            { 
+                name: 'Jina AI (Anti-Cache)', 
+                url: `https://r.jina.ai/${finalUrl}`, 
+                type: 'text',
+                headers: { "Cache-Control": "no-cache", "x-no-cache": "true" }
+            },
+            // AllOrigins через JSON (иногда лучше обходит Cloudflare, чем голый текст)
+            { 
+                name: 'AllOrigins JSON', 
+                url: `https://api.allorigins.win/get?url=${encodeURIComponent(finalUrl)}`, 
+                type: 'json_allorigins',
+                headers: { "Cache-Control": "no-store" }
+            },
+            { 
+                name: 'CodeTabs API', 
+                url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(finalUrl)}`, 
+                type: 'text',
+                headers: { "Cache-Control": "no-store" }
+            },
+            { 
+                name: 'Microlink API', 
+                url: `https://api.microlink.io/?url=${encodeURIComponent(finalUrl)}`, 
+                type: 'json_microlink',
+                headers: { "Cache-Control": "no-store" }
+            }
         ];
 
         for (const proxy of proxies) {
             log(`[${proxy.name}] Инициализация соединения...`, 'debug');
             try {
-                const response = await fetch(proxy.url, { cache: "no-store", headers: { "Pragma": "no-cache" } });
+                const response = await fetch(proxy.url, { 
+                    cache: "no-store", 
+                    headers: proxy.headers 
+                });
+                
                 if (!response.ok) {
                     log(`[${proxy.name}] Отказ сервера (HTTP ${response.status})`, 'debug');
                     continue; 
@@ -81,15 +102,25 @@
                 if (proxy.type === 'json_microlink') {
                     const data = await response.json();
                     text = JSON.stringify(data);
+                } else if (proxy.type === 'json_allorigins') {
+                    const data = await response.json();
+                    text = data.contents;
                 } else {
                     text = await response.text();
                 }
 
                 if (!text) continue;
 
+                // Проверка на Cloudflare WAF
                 if (text.includes('<title>What</title>') || text.includes('Just a moment...')) {
                     log(`[${proxy.name}] Обнаружена WAF-защита (Cloudflare). Идем дальше.`, 'error');
                     continue; 
+                }
+                
+                // Проверка на новую заглушку Rentry
+                if (text.includes('Access Code Required')) {
+                    log(`[${proxy.name}] Сервер всё еще требует Access Code! Идем дальше.`, 'error');
+                    continue;
                 }
 
                 const snippet = text.substring(0, 100).replace(/\n/g, ' ');
@@ -99,7 +130,7 @@
 
                 if (match) {
                     let proxyUrl = match[0];
-                    log(`Найден базовый URL: ${proxyUrl}`, 'info');
+                    log(`Найден URL: ${proxyUrl}`, 'info');
 
                     if (settings.append_path) {
                         proxyUrl += settings.append_path.startsWith('/') ? settings.append_path : `/${settings.append_path}`;
@@ -109,7 +140,6 @@
                 } else {
                     log(`[${proxy.name}] Паттерн trycloudflare не найден! Включаю DEEP CORE DUMP.`, 'error');
                     internalLogs.push(`\n=== DEEP CORE DUMP [${proxy.name}] ===\n${text}\n=== END DUMP ===\n`);
-                    // Не выходим из цикла! Пробуем следующий прокси, вдруг этот отдал мусор
                     continue; 
                 }
             } catch (e) {
