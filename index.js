@@ -123,73 +123,73 @@
     async function applyProxy(proxyUrl) {
         if (!proxyUrl) return;
         const settings = getSettings();
-        const context = SillyTavern.getContext();
         
+        // 1. Сначала в любом случае обновляем активный URL
         $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
-        log('DOM элемент #openai_reverse_proxy успешно обновлен', 'info');
+        log('Активный URL (#openai_reverse_proxy) обновлен', 'info');
 
+        // 2. Ищем пресет в интерфейсе и имитируем сохранение человеком
         if (settings.target_preset && settings.target_preset.trim() !== '') {
             const presetName = settings.target_preset.trim();
-            let presetFound = false;
-            let availablePresets = [];
+            let foundSelect = null;
+            let foundOption = null;
 
-            // --- ADVANCED OMNI-SCANNER (Polymorphic Arrays & Dictionaries) ---
-            const searchPaths = [
-                // @ts-ignore
-                window.proxy_presets,
-                // @ts-ignore
-                window.settings?.proxy_presets,
-                // @ts-ignore
-                window.oai_settings?.proxy_presets,
-                // @ts-ignore
-                context.settings?.proxy_presets,
-                // @ts-ignore
-                window.oai_settings?.reverse_proxy_presets
-            ];
-
-            for (const data of searchPaths) {
-                if (!data) continue;
-
-                // Если это массив (Array)
-                if (Array.isArray(data)) {
-                    data.forEach(p => { if (p && p.name) availablePresets.push(`"${p.name}"`); });
-                    const proxyPreset = data.find(p => p.name === presetName || p.name.trim() === presetName);
-                    if (proxyPreset) {
-                        if (proxyPreset.url !== undefined) proxyPreset.url = proxyUrl;
-                        if (proxyPreset.reverse_proxy !== undefined) proxyPreset.reverse_proxy = proxyUrl;
-                        presetFound = true;
-                        break;
+            // --- DOM-RADAR: Ищем выпадающий список с нашим пресетом прямо на экране ---
+            $('select').each(function() {
+                $(this).find('option').each(function() {
+                    if ($(this).text().trim() === presetName) {
+                        foundSelect = $(this).parent(); 
+                        foundOption = $(this);
                     }
-                } 
-                // Если это Словарь / Объект (Dictionary)
-                else if (typeof data === 'object') {
-                    for (const [key, val] of Object.entries(data)) {
-                        availablePresets.push(`"${key}"`);
-                        if (key.trim() === presetName) {
-                            if (typeof val === 'string') {
-                                data[key] = proxyUrl;
-                            } else if (typeof val === 'object' && val !== null) {
-                                // @ts-ignore
-                                if (val.url !== undefined) val.url = proxyUrl;
-                                // @ts-ignore
-                                if (val.reverse_proxy !== undefined) val.reverse_proxy = proxyUrl;
-                            }
-                            presetFound = true;
+                });
+            });
+
+            if (foundSelect && foundOption) {
+                log(`DOM-радар: найден список пресетов. Выбираю "${presetName}"...`, 'debug');
+                
+                // Эмулируем выбор пресета пользователем
+                foundSelect.val(foundOption.val()).trigger('change');
+                
+                // Ждем 300мс, пока интерфейс Таверны подгрузит старые данные пресета в поля
+                setTimeout(() => {
+                    // Снова вставляем нашу ссылку (чтобы перезаписать ту, что загрузилась из старого пресета)
+                    $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
+                    
+                    // Ищем кнопку с дискетой рядом с этим выпадающим списком
+                    let floppyIcon = foundSelect.parent().find('.fa-floppy-disk');
+                    if (floppyIcon.length === 0) floppyIcon = foundSelect.parent().parent().find('.fa-floppy-disk');
+                    
+                    if (floppyIcon.length > 0) {
+                        // Нажимаем на саму кнопку (или её родительский контейнер)
+                        let btn = floppyIcon.closest('.menu_button, button, div');
+                        if (btn.length > 0) {
+                            btn.trigger('click');
+                        } else {
+                            floppyIcon.trigger('click');
+                            floppyIcon.parent().trigger('click');
                         }
+                        log(`Пресет "${presetName}" перезаписан кнопкой сохранения!`, 'info');
+                        toastr.success(`Пресет "${presetName}" сохранен на диск!`);
+                    } else {
+                        log(`Кнопка с дискетой не найдена в DOM!`, 'error');
+                        toastr.warning(`Ссылка обновлена, но кнопка сохранения пресета не найдена.`);
                     }
-                    if (presetFound) break;
-                }
-            }
-
-            if (presetFound) {
-                context.saveSettingsDebounced();
-                log(`Пресет прокси "${presetName}" успешно перезаписан`, 'info');
-                toastr.success(`Пресет прокси "${presetName}" обновлен!`);
+                }, 300);
             } else {
-                const uniquePresets = [...new Set(availablePresets)].join(', ');
-                log(`Пресет "${presetName}" не найден!`, 'error');
-                log(`Доступные пресеты в памяти ST: [${uniquePresets || 'ПУСТО'}]`, 'debug');
-                toastr.warning(`Пресет "${presetName}" не найден! Глянь в логи.`);
+                // Для дебага: собираем все названия из всех списков, у которых есть дискета
+                let visiblePresets = [];
+                $('select').each(function() {
+                    if ($(this).parent().find('.fa-floppy-disk').length > 0 || $(this).parent().parent().find('.fa-floppy-disk').length > 0) {
+                        $(this).find('option').each(function() {
+                            let txt = $(this).text().trim();
+                            if (txt && txt !== '') visiblePresets.push(`"${txt}"`);
+                        });
+                    }
+                });
+                let unique = [...new Set(visiblePresets)].join(', ');
+                log(`Пресет "${presetName}" не найден на экране!`, 'error');
+                log(`Видимые пресеты в интерфейсе: [${unique || 'ПУСТО'}]`, 'debug');
+                toastr.warning(`Пресет "${presetName}" не найден в UI!`);
             }
         } else {
             toastr.success('Live Proxy URL обновлен!');
@@ -244,7 +244,7 @@
                         <label>что присобачить к ссылке?:</label>
                         <input id="rp_append_path" type="text" class="text_pole" value="${settings.append_path}" placeholder="/proxy/google-ai" />
 
-                        <label>пресет, который нужно обновить:</label>
+                        <label>пресет, который нужно обновить (ТОЧНОЕ название):</label>
                         <input id="rp_target_preset" type="text" class="text_pole" value="${settings.target_preset}" placeholder="Например: помидор пидорас" />
 
                         <label class="checkbox_label">
