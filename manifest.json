@@ -1,0 +1,11 @@
+{
+    "display_name": "помидорыч прокси апдейтер",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "клод, гемини и инсо",
+    "version": "1.0.0",
+    "description": "обновляет cloudflare ссылку на прокси самостоятельно."
+}

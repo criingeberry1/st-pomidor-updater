@@ -1,0 +1,14 @@
+.rentry-logger-container {
+    max-height: 150px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 10px;
+    font-family: monospace;
+    font-size: 0.85em;
+    margin-top: 10px;
+    border-radius: 4px;
+    display: none;
+}
+.rentry-log-entry.error { color: #ff6b6b; }
+.rentry-log-entry.info { color: #51cf66; }
+.rentry-log-entry.debug { color: #fcc419; }
