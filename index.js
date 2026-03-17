@@ -106,8 +106,8 @@
                     }
                     return proxyUrl;
                 } else {
-                    log(`[${proxy.name}] Паттерн trycloudflare не найден! Включаю DEEP CORE DUMP.`, 'error');
-                    internalLogs.push(`\n=== DEEP CORE DUMP [${proxy.name}] ===\n${text}\n=== END DUMP ===\n`);
+                    log(`[${proxy.name}] Паттерн trycloudflare не найден! Щас текст скину.`, 'error');
+                    internalLogs.push(`\n=== ТЕКСТ [${proxy.name}] ===\n${text}\n=== END DUMP ===\n`);
                     continue; 
                 }
             } catch (e) {
@@ -226,7 +226,7 @@
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                             <div id="rp_btn_force_check" class="menu_button"><i class="fa-solid fa-rotate"></i> глянуть ссылон сейчас</div>
                             <div id="rp_btn_dl_logs" class="menu_button"><i class="fa-solid fa-download"></i> скачать логи</div>
-                            <div id="rp_btn_copy_err" class="menu_button"><i class="fa-solid fa-copy"></i> Ккопировать ошибки</div>
+                            <div id="rp_btn_copy_err" class="menu_button"><i class="fa-solid fa-copy"></i> копировать ошибки</div>
                         </div>
 
                         <div id="rentry-logs-output" class="rentry-logger-container" style="${settings.verbose_logging ? 'display: block;' : 'display: none;'}"></div>
