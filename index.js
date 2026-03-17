@@ -124,17 +124,17 @@
         if (!proxyUrl) return;
         const settings = getSettings();
         
-        // 1. Сначала в любом случае обновляем активный URL
+        // 1. Вставляем активный URL
         $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
         log('Активный URL (#openai_reverse_proxy) обновлен', 'info');
 
-        // 2. Ищем пресет в интерфейсе и имитируем сохранение человеком
+        // 2. Ищем пресет и эмулируем сохранение
         if (settings.target_preset && settings.target_preset.trim() !== '') {
             const presetName = settings.target_preset.trim();
             let foundSelect = null;
             let foundOption = null;
 
-            // --- DOM-RADAR: Ищем выпадающий список с нашим пресетом прямо на экране ---
+            // Ищем список
             $('select').each(function() {
                 $(this).find('option').each(function() {
                     if ($(this).text().trim() === presetName) {
@@ -147,22 +147,32 @@
             if (foundSelect && foundOption) {
                 log(`DOM-радар: найден список пресетов. Выбираю "${presetName}"...`, 'debug');
                 
-                // Эмулируем выбор пресета пользователем
+                // Выбираем пресет
                 foundSelect.val(foundOption.val()).trigger('change');
                 
-                // Ждем 300мс, пока интерфейс Таверны подгрузит старые данные пресета в поля
+                // Ждем 500мс для надежной отрисовки интерфейса ST
                 setTimeout(() => {
-                    // Снова вставляем нашу ссылку (чтобы перезаписать ту, что загрузилась из старого пресета)
+                    // Повторно вставляем ссылку, чтобы перекрыть ту, что загрузилась из старого пресета
                     $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
                     
-                    // Ищем кнопку с дискетой рядом с этим выпадающим списком
-                    let floppyIcon = foundSelect.parent().find('.fa-floppy-disk');
-                    if (floppyIcon.length === 0) floppyIcon = foundSelect.parent().parent().find('.fa-floppy-disk');
+                    // --- AGGRESSIVE FLOPPY RADAR ---
+                    // Ищем дискету, поднимаясь до 5 уровней вверх по дереву
+                    let floppyIcon = $();
+                    let container = foundSelect;
+                    
+                    for (let i = 0; i < 5; i++) {
+                        container = container.parent();
+                        let icon = container.find('.fa-floppy-disk, .fa-save');
+                        if (icon.length > 0) {
+                            floppyIcon = icon.first();
+                            break;
+                        }
+                    }
                     
                     if (floppyIcon.length > 0) {
-                        // Нажимаем на саму кнопку (или её родительский контейнер)
-                        let btn = floppyIcon.closest('.menu_button, button, div');
-                        if (btn.length > 0) {
+                        // Пытаемся нажать на родительскую кнопку, если она есть, иначе на саму иконку
+                        let btn = floppyIcon.closest('.menu_button, button, [class*="button"]');
+                        if (btn.length > 0 && btn[0] !== floppyIcon[0]) {
                             btn.trigger('click');
                         } else {
                             floppyIcon.trigger('click');
@@ -171,24 +181,12 @@
                         log(`Пресет "${presetName}" перезаписан кнопкой сохранения!`, 'info');
                         toastr.success(`Пресет "${presetName}" сохранен на диск!`);
                     } else {
-                        log(`Кнопка с дискетой не найдена в DOM!`, 'error');
-                        toastr.warning(`Ссылка обновлена, но кнопка сохранения пресета не найдена.`);
+                        log(`Кнопка с дискетой не найдена в радиусе 5 уровней DOM!`, 'error');
+                        toastr.warning(`Ссылка обновлена, но нажать дискету не удалось.`);
                     }
-                }, 300);
+                }, 500);
             } else {
-                // Для дебага: собираем все названия из всех списков, у которых есть дискета
-                let visiblePresets = [];
-                $('select').each(function() {
-                    if ($(this).parent().find('.fa-floppy-disk').length > 0 || $(this).parent().parent().find('.fa-floppy-disk').length > 0) {
-                        $(this).find('option').each(function() {
-                            let txt = $(this).text().trim();
-                            if (txt && txt !== '') visiblePresets.push(`"${txt}"`);
-                        });
-                    }
-                });
-                let unique = [...new Set(visiblePresets)].join(', ');
                 log(`Пресет "${presetName}" не найден на экране!`, 'error');
-                log(`Видимые пресеты в интерфейсе: [${unique || 'ПУСТО'}]`, 'debug');
                 toastr.warning(`Пресет "${presetName}" не найден в UI!`);
             }
         } else {
