@@ -1,7 +1,8 @@
 // @ts-check
 (function () {
     const MODULE_NAME = 'rentry_proxy_updater';
-
+    
+    // Бронебойный паттерн с поддержкой http/https и любых символов поддомена
     const CLOUDFLARE_PATTERN = /https?:\/\/[a-zA-Z0-9-._]+\.trycloudflare\.com/i;
 
     const DEFAULT_SETTINGS = Object.freeze({
@@ -49,11 +50,11 @@
         const nocache = targetUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
         const finalUrl = targetUrl + nocache;
         
-        log(`Запуск маршрутизации для: ${finalUrl}`, 'info');
+        log(`Запуск Omega-маршрутизации для: ${finalUrl}`, 'info');
 
         const proxies = [
             { 
-                name: 'Jina AI', 
+                name: 'Jina AI (Raw HTML Override)', 
                 url: `https://r.jina.ai/${finalUrl}`, 
                 type: 'text',
                 headers: { 
@@ -106,8 +107,8 @@
                     }
                     return proxyUrl;
                 } else {
-                    log(`[${proxy.name}] Паттерн trycloudflare не найден! Щас текст скину.`, 'error');
-                    internalLogs.push(`\n=== ТЕКСТ [${proxy.name}] ===\n${text}\n=== END DUMP ===\n`);
+                    log(`[${proxy.name}] Паттерн trycloudflare не найден! Включаю DEEP CORE DUMP.`, 'error');
+                    internalLogs.push(`\n=== DEEP CORE DUMP [${proxy.name}] ===\n${text}\n=== END DUMP ===\n`);
                     continue; 
                 }
             } catch (e) {
@@ -123,39 +124,58 @@
         if (!proxyUrl) return;
         const settings = getSettings();
         const context = SillyTavern.getContext();
-
+        
         $('#openai_reverse_proxy').val(proxyUrl).trigger('input');
-        log('#openai_reverse_proxy успешно обновлен', 'info');
+        log('DOM элемент #openai_reverse_proxy успешно обновлен', 'info');
 
         if (settings.target_preset && settings.target_preset.trim() !== '') {
             const presetName = settings.target_preset.trim();
             let presetFound = false;
+            let availablePresets = [];
 
-            // @ts-ignore
-            if (window.oai_settings && Array.isArray(window.oai_settings.proxy_presets)) {
+            // --- OMNI-SCANNER ---
+            // Сканируем все возможные пути хранения прокси-пресетов в разных версиях ST
+            const searchPaths = [
                 // @ts-ignore
-                const proxyPreset = window.oai_settings.proxy_presets.find(p => p.name === presetName);
-                if (proxyPreset) {
-                    proxyPreset.url = proxyUrl;
+                window.proxy_presets,
+                // @ts-ignore
+                window.settings?.proxy_presets,
+                // @ts-ignore
+                window.oai_settings?.proxy_presets,
+                // @ts-ignore
+                context.settings?.proxy_presets
+            ];
 
-                    if (proxyPreset.reverse_proxy !== undefined) {
-                        proxyPreset.reverse_proxy = proxyUrl;
-                    }
+            for (const arr of searchPaths) {
+                if (Array.isArray(arr)) {
+                    // Собираем все названия для дебага
+                    arr.forEach(p => { if (p && p.name) availablePresets.push(`"${p.name}"`); });
                     
-                    context.saveSettingsDebounced();
-                    presetFound = true;
-                    log(`пресет "${presetName}" успешно перезаписан`, 'info');
+                    const proxyPreset = arr.find(p => p.name === presetName || p.name.trim() === presetName);
+                    if (proxyPreset) {
+                        proxyPreset.url = proxyUrl;
+                        if (proxyPreset.reverse_proxy !== undefined) {
+                            proxyPreset.reverse_proxy = proxyUrl;
+                        }
+                        presetFound = true;
+                        break;
+                    }
                 }
             }
 
             if (presetFound) {
+                context.saveSettingsDebounced();
+                log(`Пресет прокси "${presetName}" успешно перезаписан`, 'info');
                 toastr.success(`Пресет прокси "${presetName}" обновлен!`);
             } else {
-                log(`пресет"${presetName}" не найден. мне нужно ТОЧНОЕ название.`, 'error');
-                toastr.warning(`пресет "${presetName}" не найден.`);
+                // Если не нашли, выводим в логи ВСЕ пресеты, которые нашел сканер
+                const uniquePresets = [...new Set(availablePresets)].join(', ');
+                log(`Пресет "${presetName}" не найден!`, 'error');
+                log(`Доступные пресеты в памяти ST: [${uniquePresets || 'ПУСТО'}]`, 'debug');
+                toastr.warning(`Пресет "${presetName}" не найден! Глянь в логи.`);
             }
         } else {
-            toastr.success('ссылон обновлен в текущих настройках!!');
+            toastr.success('Live Proxy URL обновлен!');
         }
     }
 
