@@ -7,7 +7,7 @@
 
     const DEFAULT_SETTINGS = Object.freeze({
         enabled: true,
-        rentry_url: 'https://rentry.org/Pomidoranon_proxy', // Без raw
+        rentry_url: 'https://rentry.org/Pomidoranon_proxy',
         append_path: '/proxy/google-ai',
         target_preset: '',
         verbose_logging: false
@@ -46,41 +46,33 @@
             return null;
         }
 
-        // Вырезаем /raw, так как Rentry требует пароль
-        let targetUrl = settings.rentry_url.trim().replace(/\/raw\/?$/i, '');
-        const nocache = targetUrl.includes('?') ? `&v=${Date.now()}` : `?v=${Date.now()}`;
-        const finalUrl = targetUrl + nocache;
+        // Очищаем URL: убираем /raw и слеши на конце
+        let targetUrl = settings.rentry_url.trim().replace(/\/raw\/?$/i, '').replace(/\/$/, '');
         
-        log(`Запуск маршрутизации для: ${finalUrl}`, 'info');
+        log(`Запуск Omega-маршрутизации (PDF Exploit) для: ${targetUrl}`, 'info');
 
+        // Массив атакующих векторов
         const proxies = [
-            // 1. Jina AI в режиме HTML (ФОРСИРУЕМ ИСХОДНЫЙ КОД, ЧТОБЫ ИИ НЕ ВЫРЕЗАЛ СИНИЕ ПЛАШКИ)
+            // 1. PDF EXPLOIT: Экспорт в PDF обходит NSFW-заглушку. ИИ парсит текст из PDF-файла.
             { 
-                name: 'Jina AI (HTML Mode)', 
-                url: `https://r.jina.ai/${finalUrl}`, 
+                name: 'Jina AI (PDF Exploit)', 
+                url: `https://r.jina.ai/${targetUrl}/pdf?v=${Date.now()}`, 
                 type: 'text',
-                headers: { 
-                    "Accept": "text/html", // Это заставит Jina отдать грязный HTML вместо Markdown
-                    "Cache-Control": "no-cache", 
-                    "x-no-cache": "true" 
-                }
+                headers: { "Cache-Control": "no-cache", "x-no-cache": "true" }
             },
-            // 2. Jina AI в стандартном режиме (Резерв)
+            // 2. Стандартный режим (если PDF генератор Rentry упадет)
             { 
-                name: 'Jina AI (Markdown)', 
-                url: `https://r.jina.ai/${finalUrl}`, 
+                name: 'Jina AI (Standard)', 
+                url: `https://r.jina.ai/${targetUrl}?v=${Date.now()}`, 
                 type: 'text',
-                headers: { 
-                    "Cache-Control": "no-cache", 
-                    "x-no-cache": "true" 
-                }
+                headers: { "Cache-Control": "no-cache", "x-no-cache": "true" }
             },
-            // 3. AllOrigins (Резерв)
+            // 3. Прямой локальный запрос (если браузер разрешит CORS)
             { 
-                name: 'AllOrigins JSON', 
-                url: `https://api.allorigins.win/get?url=${encodeURIComponent(finalUrl)}`, 
-                type: 'json_allorigins',
-                headers: { "Cache-Control": "no-store" }
+                name: 'Direct Local Fetch', 
+                url: `${targetUrl}?v=${Date.now()}`, 
+                type: 'text',
+                headers: { "Cache-Control": "no-cache" }
             }
         ];
 
@@ -97,21 +89,14 @@
                     continue; 
                 }
 
-                let text = '';
-                if (proxy.type === 'json_allorigins') {
-                    const data = await response.json();
-                    text = data.contents;
-                } else {
-                    text = await response.text();
-                }
-
+                const text = await response.text();
                 if (!text) continue;
 
+                // Проверка на Cloudflare WAF и Rentry Warning
                 if (text.includes('<title>What</title>') || text.includes('Just a moment...')) {
                     log(`[${proxy.name}] Обнаружена WAF-защита. Идем дальше.`, 'error');
                     continue; 
                 }
-                
                 if (text.includes('Access Code Required')) {
                     log(`[${proxy.name}] Сервер требует Access Code. Идем дальше.`, 'error');
                     continue;
